@@ -110,6 +110,10 @@ class CocoDataset(Dataset):
             "iscrowd": torch.as_tensor(anno_data["iscrowd"], dtype=torch.int64),
         }
 
+
+        # if self.transform:
+        #     input_data = self.transform(input_data)
+
         if self.transform is not None:
             image = self.transform(image)
 
@@ -119,13 +123,13 @@ class CocoDataset(Dataset):
 
 # create datasets
 training_dataset = CocoDataset(
-    root="/home/michael/sardet100k/dataset/val",
-    annFile="/home/michael/sardet100k/dataset/Annotations_corrected/sample50.json",
+    root="/home/michael/sardet100k/dataset/train",
+    annFile="/home/michael/sardet100k/dataset/Annotations_corrected/train.json",
     transform=preprocess,
 )
 validation_dataset = CocoDataset(
     root="/home/michael/sardet100k/dataset/val",
-    annFile="/home/michael/sardet100k/dataset/Annotations_corrected/sample50.json",
+    annFile="/home/michael/sardet100k/dataset/Annotations_corrected/val.json",
     transform=preprocess,
 )
 
@@ -137,9 +141,8 @@ print(f"validation dataset size: {validation_dataset.__len__()}")
 
 
 # get a random training sample
-img, label = training_dataset[random.randint(0, len(training_dataset) - 1)]
-print(f"random training label: {label}")
-
+# img, label = training_dataset[random.randint(0, len(training_dataset) - 1)]
+# print(f"random training label: {label}")
 
 # display image with bbox label
 # transform = T.ToPILImage()
@@ -160,7 +163,9 @@ train_loader = torch.utils.data.DataLoader(
     training_dataset,
     batch_size=BATCH_SIZE,
     shuffle=True,
-    num_workers=8,
+    num_workers=16,
+    prefetch_factor=4,
+    pin_memory=True,
     collate_fn=collate,
 )
 
@@ -168,7 +173,9 @@ validation_loader = torch.utils.data.DataLoader(
     validation_dataset,
     batch_size=BATCH_SIZE,
     shuffle=False,
-    num_workers=8,
+    num_workers=16,
+    prefetch_factor=4,
+    pin_memory=True,
     collate_fn=collate,
 )
 
@@ -243,6 +250,7 @@ for epoch in range(num_epochs):
 
     # validation loop
     model.train()
+    best_val_map = float('inf') 
     total_val_mAP = 0
     N = len(validation_loader.dataset)
     current_validation_loss = 0
@@ -275,6 +283,12 @@ for epoch in range(num_epochs):
             total_val_mAP += batch_mAP
 
     val_mAP = total_val_mAP / N
+
+    if val_mAP < best_val_map:
+        print (f'Best model is epoch: {epoch+1}')
+        best_val_map = val_mAP
+        torch.save(model.state_dict(), f'best_model_{epoch+1}.pth')  # Save the best model
+
 
     # Print training and validation metrics
     print(f'Epoch [{epoch+1}/{num_epochs}]')
