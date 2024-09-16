@@ -163,8 +163,8 @@ train_loader = torch.utils.data.DataLoader(
     training_dataset,
     batch_size=BATCH_SIZE,
     shuffle=True,
-    num_workers=16,
-    prefetch_factor=4,
+    num_workers=0,
+    # prefetch_factor=4,
     pin_memory=True,
     collate_fn=collate,
 )
@@ -173,8 +173,8 @@ validation_loader = torch.utils.data.DataLoader(
     validation_dataset,
     batch_size=BATCH_SIZE,
     shuffle=False,
-    num_workers=16,
-    prefetch_factor=4,
+    num_workers=0,
+    # prefetch_factor=4,
     pin_memory=True,
     collate_fn=collate,
 )
@@ -217,14 +217,15 @@ def calculate_map(predictions, targets, iou_threshold=0.5):
 num_epochs = 12
 train_loss_list = []
 validation_loss_list = []
-total_train_mAP = 0
+
 model.train() # set model in training mode
 for epoch in range(num_epochs):
     model.train()
     N = len(train_loader.dataset)
     current_train_loss = 0
+    total_train_mAP = 0
     # train loop
-    for images, targets in train_loader:
+    for i, (images, targets) in enumerate(train_loader):
         # move data to device and build the right input format for our model
         images = list(image.to(device) for image in images)
         targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} 
@@ -245,6 +246,8 @@ for epoch in range(num_epochs):
             batch_mAP = calculate_map(predictions, targets)
             total_train_mAP += batch_mAP
         model.train()
+        if (i + 1) % 500 == 0:
+            print(f"Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{len(train_loader)}], Loss: {current_train_loss / (i+1):.4f}")
     train_loss_list.append(current_train_loss / N)
     train_mAP = total_train_mAP / N
 
