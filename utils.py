@@ -4,6 +4,7 @@ from pathlib import Path
 from PIL import Image
 import torch
 from torch.utils.data import Dataset
+from torchvision.ops import box_iou
 from torchvision.models.detection.faster_rcnn import (
     fasterrcnn_resnet50_fpn,
     FasterRCNN_ResNet50_FPN_Weights,

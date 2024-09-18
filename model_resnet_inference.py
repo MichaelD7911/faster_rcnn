@@ -25,7 +25,7 @@ model.to(device)
 # model = torch.load(mpath, map_location=torch.device('cpu')) 
 validation_dataset = CocoDataset(
     root="/home/michael/sardet100k/dataset/val",
-    annFile="/home/michael/sardet100k/dataset/Annotations_corrected/sample50.json",
+    annFile="/home/michael/sardet100k/dataset/Annotations_corrected/val.json",
     transform=preprocess,
 )
 
@@ -59,6 +59,6 @@ with torch.no_grad():
 print ('finished')
 # # Run evaluation and print mAP
 
-# mAP = calculate_map(predictions, targets)
+mAP = calculate_map(predictions, targets)
 
-# print(f"Validation mAP: {mAP:.4f}")
+print(f"Validation mAP: {mAP:.4f}")
