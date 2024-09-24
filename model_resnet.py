@@ -124,8 +124,8 @@ class CocoDataset(Dataset):
 
 # create datasets
 training_dataset = CocoDataset(
-    root="/home/michael/sardet100k/dataset/val",
-    annFile="/home/michael/sardet100k/dataset/Annotations_corrected/val.json",
+    root="/home/michael/sardet100k/dataset/train",
+    annFile="/home/michael/sardet100k/dataset/Annotations_corrected/train50K.json",
     transform=preprocess,
 )
 validation_dataset = CocoDataset(
