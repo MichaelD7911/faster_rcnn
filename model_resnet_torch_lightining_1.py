@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from collections import defaultdict
-from lightning.pytorch.callbacks import TQDMProgressBar
+from lightning.pytorch.callbacks import RichProgressBar
 from PIL import Image
 import torch
 from torchvision.models.detection.faster_rcnn import (
@@ -15,7 +15,7 @@ from torch.optim import SGD
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from torchmetrics.detection import MeanAveragePrecision
 import lightning as L
-
+from lightning.pytorch.loggers import WandbLogger
 
 
 
@@ -99,11 +99,22 @@ class FasterRCNN_ResNet50_Lightning(L.LightningModule):
         super().__init__()
         self.model = fasterrcnn_resnet50_fpn(weights=FasterRCNN_ResNet50_FPN_Weights.DEFAULT)
         num_classes = 6
-        in_features = self.model.roi_heads.box_predictor.cls_score.in_features
-        self.model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-        self.learning_rate = 1e-3
-        self.train_map = MeanAveragePrecision()
-        self.val_map = MeanAveragePrecision()
+
+        self.model.roi_heads.box_predictor.cls_score = torch.nn.Linear(
+        in_features=self.model.roi_heads.box_predictor.cls_score.in_features,
+        out_features=num_classes,
+        bias=True)
+        self.model.roi_heads.box_predictor.bbox_pred = torch.nn.Linear(
+        in_features=self.model.roi_heads.box_predictor.bbox_pred.in_features,
+        out_features=num_classes * 4,
+        bias=True)
+
+
+        # in_features = self.model.roi_heads.box_predictor.cls_score.in_features
+        # self.model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+        # self.learning_rate = 1e-3
+        self.train_map = MeanAveragePrecision(box_format='xyxy', iou_type='bbox')
+        self.val_map = MeanAveragePrecision(box_format='xyxy', iou_type='bbox')
 
     def forward(self, x):
         return self.model(x)
@@ -115,15 +126,17 @@ class FasterRCNN_ResNet50_Lightning(L.LightningModule):
         loss_dict = self.model(images, targets)
         total_loss = sum(loss for loss in loss_dict.values())
         
-        # Log training loss
+        # predictions = self.model(images)
+        # self.val_map.update(predictions, targets)
         # self.log('train_loss', total_loss, on_step=False, on_epoch=True, prog_bar=True, batch_size=batch_size)
-        self.log('train_loss', total_loss, on_step=False, on_epoch=True)
+        self.log('train_loss', total_loss, on_step=True, on_epoch=True, batch_size=len(batch))
         # self.log('train_loss', total_loss, on_step=False, on_epoch=True)
         # # self.log('loss_step', loss, on_step=True, on_epoch=False)
-
+        # if batch_idx % 5 == 0:
+            # self.validation_step()
         # self.model.eval()
-        # if batch_idx % 10 == 0:
-        #     self.logger.history['loss_step']
+        # if batch_idx % 100 == 0:
+            # self.logger.history['loss_step']
             
   
         return total_loss
@@ -137,19 +150,15 @@ class FasterRCNN_ResNet50_Lightning(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         images, targets = batch
         predictions = self.model(images)
+        # loss = self.model(images, targets)
                 
         self.val_map.update(predictions, targets)
-        self.log({'val_map': self.val_map.compute()['map_50']}, on_step=True, on_epoch=True, prog_bar=True)
-        # self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+    
+
+    def on_validation_epoch_end(self):
+        self.log('val_map', self.val_map.compute()['map_50'],
+                  on_step=False, on_epoch=True, prog_bar=True)
         self.val_map.reset()
-
-
-    # def on_validation_epoch_end(self):
-    #     # Log mAP for validation set
-    #     val_map_value = self.val_map.compute()['map_50']
-    #     self.log('val_map', val_map_value, on_epoch=True, prog_bar=True, logger=True)
-    #     # self.log_dict({'validation_loss': loss, 'validation_accuracy': acc}, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-    #     self.val_map.reset()
 
 
     # def predict_step(self, batch, batch_idx, dataloader_idx=0):
@@ -164,7 +173,12 @@ class FasterRCNN_ResNet50_Lightning(L.LightningModule):
     
     def configure_optimizers(self):
         params = [p for p in self.model.parameters() if p.requires_grad]
-        return SGD(params, lr=0.02)
+        # return SGD(params, lr=0.02)
+        return SGD(
+        params, 
+        lr=0.0001, 
+        momentum=0.9, 
+        weight_decay=0.0001)
 
 
 preprocess = FasterRCNN_ResNet50_FPN_Weights.DEFAULT.transforms()
@@ -191,32 +205,40 @@ class CocoLightningDataModule(L.LightningDataModule):
 
     
     def train_dataloader(self):
-        train_dataset = CocoDataset(root="/home/michael/sardet100k/dataset/val",
-                                    annFile="/home/michael/sardet100k/dataset/Annotations_corrected/sample50.json",
+        train_dataset = CocoDataset(root="/home/michael/sardet100k/dataset/train",
+                                    annFile="/home/michael/sardet100k/dataset/Annotations_corrected/train.json",
                                     transform=preprocess)
         return DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True, 
                           num_workers=self.num_workers, collate_fn=self._collate_fn)
 
-    def train_dataloader(self):
+    def val_dataloader(self):
         val_dataset = CocoDataset(root="/home/michael/sardet100k/dataset/val",
-                                  annFile="/home/michael/sardet100k/dataset/Annotations_corrected/sample50.json",
+                                  annFile="/home/michael/sardet100k/dataset/Annotations_corrected/val.json",
                                   transform=preprocess)
-        return DataLoader(val_dataset, batch_size=self.batch_size, shuffle=True, 
+        return DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, 
                           num_workers=self.num_workers, collate_fn=self._collate_fn)
 
 
+
 def train_faster_rcnn():
-    # Initialize dataset and dataloaders
-    data = CocoLightningDataModule(batch_size=2, num_workers=4)
+    torch.set_float32_matmul_precision('medium')
+    wandb_logger = WandbLogger(log_model="all")
+    data = CocoLightningDataModule(batch_size=2, num_workers=14)
     model = FasterRCNN_ResNet50_Lightning()
-    trainer = L.Trainer(max_epochs=2, accelerator='gpu',
-                        num_nodes=1, log_every_n_steps=2)
+    trainer = L.Trainer(max_epochs=12,
+                        accelerator='gpu',
+                        num_nodes=1, 
+                        # limit_train_batches=.001,
+                        # limit_val_batches=.001,
+                        # log_every_n_steps=1,
+                        val_check_interval=0.2,
+                        callbacks=[RichProgressBar(leave=True)],
+                        logger=wandb_logger
+                        )
     
-    # trainer = L.Trainer(max_epochs=10, accelerator='gpu',
-    #                     num_nodes=1, 
-    #                     callbacks=[TQDMProgressBar(refresh_rate=2)])
     
     trainer.fit(model, data)
+    
 
 
 if __name__ == '__main__':

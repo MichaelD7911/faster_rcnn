@@ -15,7 +15,12 @@ from torchvision.models.detection.faster_rcnn import (
     # FasterRCNN_ResNet50_FPN_V2_Weights
 )
 from torchmetrics.detection import MeanAveragePrecision
+# import wandb
 
+
+
+
+# wandb.init(project="Fast RCNN pure pytorch")
 
 device = (
     "cuda"
@@ -124,8 +129,8 @@ class CocoDataset(Dataset):
 
 # create datasets
 training_dataset = CocoDataset(
-    root="/home/michael/sardet100k/dataset/train",
-    annFile="/home/michael/sardet100k/dataset/Annotations_corrected/train50K.json",
+    root="/home/michael/sardet100k/dataset/val",
+    annFile="/home/michael/sardet100k/dataset/Annotations_corrected/val.json",
     transform=preprocess,
 )
 validation_dataset = CocoDataset(
@@ -154,7 +159,7 @@ print(f"validation dataset size: {validation_dataset.__len__()}")
 # # display(img)
 # img.show()
 
-BATCH_SIZE = 4
+BATCH_SIZE = 2
 
 def collate(batch):
     """return tuple data"""
@@ -225,7 +230,7 @@ for epoch in range(num_epochs):
     N = len(train_loader.dataset)
     current_train_loss = 0
     total_train_mAP_1 = 0
-    batch_mAP_2 = MeanAveragePrecision(box_format='xyxy', iou_type='bbox', iou_thresholds=[0.5])
+    torchmetrics_mAP = MeanAveragePrecision(box_format='xyxy', iou_type='bbox')
     # train loop
     for i, (images, targets) in enumerate(train_loader):
         # move data to device and build the right input format for our model
@@ -246,15 +251,14 @@ for epoch in range(num_epochs):
         with torch.no_grad():
             predictions = model(images)
             batch_mAP_1 = calculate_map(predictions, targets)
-            batch_mAP_2.update(predictions, targets)
             
             total_train_mAP_1 += batch_mAP_1
         model.train()
         if (i + 1) % 500 == 0:
             print(f"Epoch [{epoch+1}/{num_epochs}], Step [{i+1}/{len(train_loader)}], Loss: {current_train_loss / (i+1):.4f}")
     train_loss_list.append(current_train_loss / N)
-    train_mAP_1 = total_train_mAP_1 / num_epochs
-    # train_mAP_2 = total_train_mAP_2 / num_epochs
+    train_mAP_1 = total_train_mAP_1 / (i+1)
+
 
     # validation loop
     model.train()
@@ -288,9 +292,10 @@ for epoch in range(num_epochs):
 
             predictions = model(images)  # Get predictions for validation
             batch_mAP = calculate_map(predictions, targets)  # mAP calculation function
+            torchmetrics_mAP.update(predictions, targets)
             total_val_mAP += batch_mAP
 
-    val_mAP = total_val_mAP / num_epochs
+    val_mAP = total_val_mAP / len(validation_loader)
 
     if val_mAP < best_val_map:
         print (f'Best model is epoch: {epoch+1}')
@@ -301,7 +306,7 @@ for epoch in range(num_epochs):
     # Print training and validation metrics
     print(f'Epoch [{epoch+1}/{num_epochs}]')
     print(f'Training | Validation Loss: {train_loss_list[-1]:.4f} <> {validation_loss_list[-1]:.4f}')
-    print(f'Train | Validation mAP (IoU 0.5): {train_mAP_1:.4f} <> {batch_mAP_2.compute()["map"]:.4f} <> {val_mAP:.4f}')
+    print(f'Train | Validation mAP (IoU 0.5): {train_mAP_1:.4f} <> {torchmetrics_mAP.compute()["map_50"]:.4f} <> {val_mAP:.4f}')
     current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"Current time: {current_time}")
     print("=" * 80)
